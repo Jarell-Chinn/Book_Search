@@ -1,5 +1,4 @@
-// set up resolvers
-const { AuthenticationError } = require("apollo-server-express");
+const { GraphQLError } = require("graphql");
 const { User } = require("../models");
 const { signToken } = require("../utils/auth");
 
@@ -7,59 +6,84 @@ const resolvers = {
   Query: {
     me: async (parent, args, context) => {
       if (context.user) {
-        data = await User.findOne({ _id: context.user._id }).select(
+        const userData = await User.findOne({ _id: context.user._id }).select(
           "-__v -password"
         );
-        return data;
+        return userData;
       }
-      throw new AuthenticationError("Must be logged in");
+
+      throw new GraphQLError("You must be logged in!", {
+        extensions: {
+          code: "UNAUTHENTICATED",
+        },
+      });
     },
   },
 
   Mutation: {
-    addUser: async (parent, { username, email, password }) => {
-      const user = await User.create({ username, email, password });
+    addUser: async (parent, args) => {
+      const user = await User.create(args);
+      console.log(user);
+
       const token = signToken(user);
       return { token, user };
     },
+
     login: async (parent, { email, password }) => {
       const user = await User.findOne({ email });
 
       if (!user) {
-        throw new AuthenticationError("User not found");
+        throw new GraphQLError("User Not Found", {
+          extensions: {
+            code: "UNAUTHENTICATED",
+          },
+        });
       }
 
       const correctPw = await user.isCorrectPassword(password);
 
       if (!correctPw) {
-        throw new AuthenticationError("wrong credentials");
+        throw new GraphQLError("Incorrect Password", {
+          extensions: {
+            code: "UNAUTHENTICATED",
+          },
+        });
       }
 
       const token = signToken(user);
-
       return { token, user };
     },
-    saveBook: async (parent, { newBook }, context) => {
+
+    saveBook: async (parent, { input }, context) => {
       if (context.user) {
         const updatedUser = await User.findByIdAndUpdate(
           { _id: context.user._id },
-          { $push: { savedBooks: newBook } },
+          { $addToSet: { savedBooks: input } },
           { new: true }
         );
         return updatedUser;
       }
-      throw new AuthenticationError("Must be logged in");
+      throw new GraphQLError("You must be logged in!", {
+        extensions: {
+          code: "UNAUTHENTICATED",
+        },
+      });
     },
-    removeBook: async (parent, { bookId }, context) => {
+
+    deleteBook: async (parent, { bookId }, context) => {
       if (context.user) {
-        const updatedUser = await User.findByIdAndUpdate(
+        const updatedUser = await User.findOneAndUpdate(
           { _id: context.user._id },
-          { $pull: { savedBooks: { bookId } } },
+          { $pull: { savedBooks: { bookId: bookId } } },
           { new: true }
         );
         return updatedUser;
       }
-      throw new AuthenticationError("Login required!");
+      throw new GraphQLError("You must be logged in!", {
+        extensions: {
+          code: "UNAUTHENTICATED",
+        },
+      });
     },
   },
 };
